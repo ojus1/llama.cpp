@@ -415,6 +415,7 @@ extern "C" {
         GGML_OP_DSV4_HC_PRE,
         GGML_OP_DSV4_HC_POST,
         GGML_OP_TOP_K_MASK,
+        GGML_OP_REL_BIAS_MASK,
 
         GGML_OP_UNARY,
 
@@ -2517,6 +2518,24 @@ extern "C" {
             struct ggml_tensor  * score,
             struct ggml_tensor  * blocks,
             struct ggml_tensor  * extra);
+
+    // fused relative-position bias + KQ mask (Inkling 2)
+    //
+    // table:   [n_head, n_rel, n_tokens]                 f32, bias of each distance bucket, per head and token
+    // rel_pos: [n_kv, n_tokens]                          i32, distance bucket of each (cell, token), clamped to [0, n_rel)
+    // mask:    [n_kv, n_tokens/n_stream, 1, n_stream]    f16 or f32
+    // res:     [n_kv, n_tokens/n_stream, n_head, n_stream] of type (f16 or f32)
+    //
+    // res[j, t, h, s] = (type) (table[h, rel_pos[j, s*T + t], s*T + t] + (float) mask[j, t, 0, s]),  T = n_tokens/n_stream
+    //
+    // same result as get_rows(table, rel_pos) -> permute -> cont -> add(mask) -> cast, in one pass
+    //
+    GGML_API struct ggml_tensor * ggml_rel_bias_mask(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * table,
+            struct ggml_tensor  * rel_pos,
+            struct ggml_tensor  * mask,
+            enum   ggml_type      type);
 
     // custom operators
 

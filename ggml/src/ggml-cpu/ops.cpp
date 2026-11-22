@@ -12529,3 +12529,53 @@ void ggml_compute_forward_lightning_indexer(
         }
     }
 }
+
+// ggml_compute_forward_rel_bias_mask
+
+void ggml_compute_forward_rel_bias_mask(
+        const ggml_compute_params * params,
+        ggml_tensor * dst) {
+    const ggml_tensor * table   = dst->src[0];
+    const ggml_tensor * rel_pos = dst->src[1];
+    const ggml_tensor * mask    = dst->src[2];
+
+    GGML_ASSERT(table->type == GGML_TYPE_F32);
+    GGML_ASSERT(rel_pos->type == GGML_TYPE_I32 && rel_pos->nb[0] == sizeof(int32_t));
+    GGML_ASSERT(mask->type == GGML_TYPE_F16 || mask->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F16 || dst->type == GGML_TYPE_F32);
+    GGML_ASSERT(mask->nb[0] == ggml_type_size(mask->type) && dst->nb[0] == ggml_type_size(dst->type));
+
+    const int64_t n_kv   = dst->ne[0];
+    const int64_t T      = dst->ne[1];
+    const int64_t n_head = dst->ne[2];
+    const int64_t n_rows = T*dst->ne[3];
+    const int64_t n_rel  = table->ne[1];
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    for (int64_t r = ith; r < n_rows; r += nth) {
+        const int64_t t   = r % T;
+        const int64_t s   = r / T;
+        const int64_t tok = r;
+
+        const int32_t * rp   = (const int32_t *) ((const char *) rel_pos->data + tok*rel_pos->nb[1]);
+        const char    * mrow = (const char *) mask->data + t*mask->nb[1] + s*mask->nb[3];
+        const char    * trow = (const char *) table->data + tok*table->nb[2];
+
+        for (int64_t h = 0; h < n_head; ++h) {
+            char * drow = (char *) dst->data + t*dst->nb[1] + h*dst->nb[2] + s*dst->nb[3];
+            for (int64_t j = 0; j < n_kv; ++j) {
+                int32_t idx = rp[j];
+                idx = idx < 0 ? 0 : (idx >= n_rel ? (int32_t) (n_rel - 1) : idx);
+                const float m = mask->type == GGML_TYPE_F16 ? GGML_CPU_FP16_TO_FP32(((const ggml_fp16_t *) mrow)[j]) : ((const float *) mrow)[j];
+                const float v = *(const float *) (trow + idx*table->nb[1] + h*table->nb[0]) + m;
+                if (dst->type == GGML_TYPE_F16) {
+                    ((ggml_fp16_t *) drow)[j] = GGML_CPU_FP32_TO_FP16(v);
+                } else {
+                    ((float *) drow)[j] = v;
+                }
+            }
+        }
+    }
+}

@@ -1589,3 +1589,6 @@ struct llm_graph_context {
 
 // TODO: better name
 int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buckets, bool bidirectional);
+
+// LLAMA_RELBIAS_UNFUSED=1: build the Inkling 2 relative-position bias mask with the old get_rows/permute/add/cast ops
+bool llm_graph_rel_bias_unfused();

@@ -4409,12 +4409,18 @@ ggml_tensor * llm_graph_context::build_attn(
 
     // a mask per head, in the dense layout of the input mask, which flash attention takes in F16
     ggml_tensor * kq_mask = attn_mask.raw;
-    if (kq_mask->type != GGML_TYPE_F32) {
-        kq_mask = ggml_cast(ctx0, kq_mask, GGML_TYPE_F32);
-    }
-    kq_mask = ggml_add(ctx0, kq_b, kq_mask);
-    if (cparams.flash_attn) {
-        kq_mask = ggml_cast(ctx0, kq_mask, GGML_TYPE_F16);
+    if (!llm_graph_rel_bias_unfused()) {
+        // kq_b is the bias table [n_head, n_rel, n_tokens]: gather, add the mask and convert in one op
+        ggml_tensor * rel_pos = is_swa ? inp->self_rel_pos_swa : inp->self_rel_pos;
+        kq_mask = ggml_rel_bias_mask(ctx0, kq_b, rel_pos, kq_mask, cparams.flash_attn ? GGML_TYPE_F16 : GGML_TYPE_F32);
+    } else {
+        if (kq_mask->type != GGML_TYPE_F32) {
+            kq_mask = ggml_cast(ctx0, kq_mask, GGML_TYPE_F32);
+        }
+        kq_mask = ggml_add(ctx0, kq_b, kq_mask);
+        if (cparams.flash_attn) {
+            kq_mask = ggml_cast(ctx0, kq_mask, GGML_TYPE_F16);
+        }
     }
     cb(kq_mask, "kq_mask_rel_pos", il);
 
@@ -4726,6 +4732,14 @@ void llm_graph_context::build_sampling() const {
         }
     }
     */
+}
+
+bool llm_graph_rel_bias_unfused() {
+    static const bool unfused = [] {
+        const char * v = getenv("LLAMA_RELBIAS_UNFUSED");
+        return v != nullptr && v[0] != '\0' && v[0] != '0';
+    }();
+    return unfused;
 }
 
 int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buckets, bool bidirectional) {
