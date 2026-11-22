@@ -191,7 +191,7 @@ def get_docs(tok, n_docs, min_tokens, source):
     from datasets import load_dataset
     docs = []
     if source == "wikitext":
-        ds = load_dataset("wikitext", "wikitext-103-raw-v1", split="test")
+        ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1", split="test")
         text = "".join(ds["text"])
         ids = tok(text, return_tensors="pt").input_ids[0]
         for i in range(n_docs):
